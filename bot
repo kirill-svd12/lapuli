@@ -1,0 +1,59 @@
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+# Enable logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+# List of admin IDs
+ADMIN_IDS = [
+    123456789,  # Replace with actual admin IDs
+    987654321,
+    456789123
+]
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send welcome message with buttons when the command /start is issued."""
+    keyboard = [
+        [
+            InlineKeyboardButton("Узнать свой ID", callback_data='get_id'),
+            InlineKeyboardButton("Я админ", callback_data='check_admin')
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        'Привет! Я бот для проверки администраторов. Выберите действие:',
+        reply_markup=reply_markup
+    )
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button presses."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'get_id':
+        await query.edit_message_text(f'Ваш ID: {query.from_user.id}')
+    
+    elif query.data == 'check_admin':
+        if query.from_user.id in ADMIN_IDS:
+            await query.edit_message_text('Добро пожаловать в меню администратора!')
+        else:
+            await query.edit_message_text('Вы не админ')
+
+def main():
+    """Start the bot."""
+    # Create the Application and pass it your bot's token
+    application = Application.builder().token('8054850906:AAEzFbH2FaeTjjQ7Z_kOlg8BOsV1iR--66o').build()
+
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_callback))
+
+    # Start the Bot
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == '__main__':
+    main()
