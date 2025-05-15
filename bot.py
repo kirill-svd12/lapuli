@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ApplicationBuilder, MessageHandler, filters, ConversationHandler
+import asyncio
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.date import DateTrigger
 
 # Load environment variables
 load_dotenv()
@@ -28,7 +31,7 @@ KIRILL_ID = 5014279740
 CHANNEL_ID = "-1002339723141"  # Замените на ID вашего канала
 
 # States for conversation
-WAITING_FOR_MESSAGE, WAITING_FOR_DATE = range(2)
+WAITING_FOR_MESSAGE, WAITING_FOR_DATE, WAITING_FOR_TIME = range(3)
 
 # Schedule dictionary
 SCHEDULE = {
@@ -45,47 +48,68 @@ SCHEDULE = {
 weekly_plan = {day: {"status": "❌", "author": data["author"], "content": data["content"]} 
                for day, data in SCHEDULE.items()}
 
+# Initialize scheduler
+scheduler = AsyncIOScheduler()
+
+def get_back_button():
+    """Return a back button for menus."""
+    return [InlineKeyboardButton("◀️ Вернуться в меню", callback_data='back_to_menu')]
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message with buttons when the command /start is issued."""
-    keyboard = [
-        [
-            InlineKeyboardButton("Узнать свой ID", callback_data='get_id'),
-            InlineKeyboardButton("Я админ", callback_data='check_admin')
+    if update.effective_user.id in ADMIN_IDS:
+        await admin_menu(update, context)
+    else:
+        keyboard = [
+            [
+                InlineKeyboardButton("Узнать свой ID", callback_data='get_id'),
+                InlineKeyboardButton("Я админ", callback_data='check_admin')
+            ]
         ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        'Привет! Я бот для проверки администраторов. Выберите действие:',
-        reply_markup=reply_markup
-    )
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            'Привет! Я бот для проверки администраторов. Выберите действие:',
+            reply_markup=reply_markup
+        )
 
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show admin menu with options."""
-    query = update.callback_query
-    await query.answer()
-    
     keyboard = [
         [InlineKeyboardButton("Запланировать пост", callback_data='schedule_post')],
         [InlineKeyboardButton("Посмотреть расписание", callback_data='view_schedule')]
     ]
     
     # Добавляем кнопки плана только для Кирилла
-    if query.from_user.id == KIRILL_ID:
+    if update.effective_user.id == KIRILL_ID:
         keyboard.append([InlineKeyboardButton("Выполнение плана", callback_data='plan_status')])
-    elif query.from_user.id == MAX_ID:
+    elif update.effective_user.id == MAX_ID:
         keyboard.append([InlineKeyboardButton("План", callback_data='view_plan')])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
-        "Меню администратора. Выберите действие:",
-        reply_markup=reply_markup
-    )
+    
+    if isinstance(update, CallbackQuery):
+        await update.edit_message_text(
+            "Меню администратора. Выберите действие:",
+            reply_markup=reply_markup
+        )
+    else:
+        await update.message.reply_text(
+            "Меню администратора. Выберите действие:",
+            reply_markup=reply_markup
+        )
 
 async def schedule_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start the process of scheduling a post."""
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Отправьте сообщение, которое нужно опубликовать:")
+    
+    keyboard = [[InlineKeyboardButton("◀️ Вернуться в меню", callback_data='back_to_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "Отправьте сообщение, которое нужно опубликовать:",
+        reply_markup=reply_markup
+    )
     return WAITING_FOR_MESSAGE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -93,7 +117,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['post_message'] = update.message.text
     keyboard = [
         [InlineKeyboardButton("Опубликовать сейчас", callback_data='post_now')],
-        [InlineKeyboardButton("Выбрать дату и время", callback_data='select_datetime')]
+        [InlineKeyboardButton("Выбрать дату и время", callback_data='select_datetime')],
+        get_back_button()[0]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -101,6 +126,87 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
     return WAITING_FOR_DATE
+
+async def select_datetime(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle datetime selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Создаем клавиатуру с датами (сегодня и следующие 7 дней)
+    keyboard = []
+    today = datetime.now()
+    for i in range(8):
+        date = today + timedelta(days=i)
+        date_str = date.strftime("%d.%m.%Y")
+        keyboard.append([InlineKeyboardButton(date_str, callback_data=f'date_{date_str}')])
+    
+    keyboard.append(get_back_button())
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "Выберите дату публикации:",
+        reply_markup=reply_markup
+    )
+    return WAITING_FOR_TIME
+
+async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle time selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    date_str = query.data.split('_')[1]
+    context.user_data['selected_date'] = date_str
+    
+    # Создаем клавиатуру с временем (каждый час)
+    keyboard = []
+    for hour in range(24):
+        time_str = f"{hour:02d}:00"
+        keyboard.append([InlineKeyboardButton(time_str, callback_data=f'time_{time_str}')])
+    
+    keyboard.append(get_back_button())
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "Выберите время публикации:",
+        reply_markup=reply_markup
+    )
+    return WAITING_FOR_TIME
+
+async def schedule_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Schedule the message for posting."""
+    query = update.callback_query
+    await query.answer()
+    
+    time_str = query.data.split('_')[1]
+    date_str = context.user_data['selected_date']
+    message = context.user_data['post_message']
+    
+    # Создаем datetime объект
+    post_time = datetime.strptime(f"{date_str} {time_str}", "%d.%m.%Y %H:%M")
+    
+    # Планируем отправку
+    scheduler.add_job(
+        send_scheduled_message,
+        trigger=DateTrigger(run_date=post_time),
+        args=[context.bot, message],
+        id=f"post_{post_time.strftime('%Y%m%d%H%M')}"
+    )
+    
+    keyboard = [get_back_button()]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"Сообщение запланировано на {date_str} в {time_str}",
+        reply_markup=reply_markup
+    )
+    return ConversationHandler.END
+
+async def send_scheduled_message(bot, message):
+    """Send the scheduled message to the channel."""
+    try:
+        await bot.send_message(chat_id=CHANNEL_ID, text=message)
+    except Exception as e:
+        logging.error(f"Error sending scheduled message: {e}")
 
 async def post_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Post the message to the channel."""
@@ -112,10 +218,14 @@ async def post_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=CHANNEL_ID,
             text=context.user_data['post_message']
         )
-        await query.edit_message_text("Сообщение опубликовано!")
-    else:
-        # Здесь можно добавить логику для выбора даты и времени
-        await query.edit_message_text("Функция выбора даты и времени будет добавлена позже")
+        keyboard = [get_back_button()]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "Сообщение опубликовано!",
+            reply_markup=reply_markup
+        )
+    elif query.data == 'select_datetime':
+        return await select_datetime(update, context)
     
     return ConversationHandler.END
 
@@ -128,7 +238,13 @@ async def view_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for day, data in SCHEDULE.items():
         schedule_text += f"{day} - {data['author']}, {data['content']}\n"
     
-    await query.edit_message_text(schedule_text)
+    keyboard = [get_back_button()]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        schedule_text,
+        reply_markup=reply_markup
+    )
 
 async def plan_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show and handle plan status for Kirill."""
@@ -143,6 +259,7 @@ async def plan_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 callback_data=f'toggle_{day}'
             )
         ])
+    keyboard.append(get_back_button())
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
@@ -180,15 +297,13 @@ async def view_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "МАКС" in data["author"]:
             plan_text += f"{day}: {data['content']} {data['status']}\n"
     
-    await query.edit_message_text(plan_text)
-
-async def send_weekly_report():
-    """Send weekly report to Max."""
-    missed_posts = sum(1 for day, data in weekly_plan.items() 
-                      if "МАКС" in data["author"] and data["status"] == "❌")
+    keyboard = [get_back_button()]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    report_text = f"Еженедельный отчет:\nПропущено постов: {missed_posts}"
-    await context.bot.send_message(chat_id=MAX_ID, text=report_text)
+    await query.edit_message_text(
+        plan_text,
+        reply_markup=reply_markup
+    )
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button presses."""
@@ -196,13 +311,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == 'get_id':
-        await query.edit_message_text(f'Ваш ID: {query.from_user.id}')
+        keyboard = [get_back_button()]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f'Ваш ID: {query.from_user.id}',
+            reply_markup=reply_markup
+        )
     
     elif query.data == 'check_admin':
         if query.from_user.id in ADMIN_IDS:
             await admin_menu(update, context)
         else:
-            await query.edit_message_text('Вы не админ')
+            keyboard = [get_back_button()]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                'Вы не админ',
+                reply_markup=reply_markup
+            )
+    
+    elif query.data == 'back_to_menu':
+        await admin_menu(update, context)
     
     elif query.data == 'schedule_post':
         return await schedule_post(update, context)
@@ -219,6 +347,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith('toggle_'):
         await toggle_plan_status(update, context)
     
+    elif query.data.startswith('date_'):
+        return await select_time(update, context)
+    
+    elif query.data.startswith('time_'):
+        return await schedule_message(update, context)
+    
     elif query.data in ['post_now', 'select_datetime']:
         return await post_message(update, context)
 
@@ -228,12 +362,19 @@ def main():
     TOKEN = os.getenv("BOT_TOKEN")
     application = ApplicationBuilder().token(TOKEN).build()
 
+    # Start the scheduler
+    scheduler.start()
+
     # Add handlers
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(schedule_post, pattern='^schedule_post$')],
         states={
             WAITING_FOR_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
-            WAITING_FOR_DATE: [CallbackQueryHandler(post_message, pattern='^(post_now|select_datetime)$')]
+            WAITING_FOR_DATE: [CallbackQueryHandler(post_message, pattern='^(post_now|select_datetime)$')],
+            WAITING_FOR_TIME: [
+                CallbackQueryHandler(select_time, pattern='^date_'),
+                CallbackQueryHandler(schedule_message, pattern='^time_')
+            ]
         },
         fallbacks=[CommandHandler("start", start)]
     )
