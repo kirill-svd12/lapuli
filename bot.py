@@ -1,9 +1,12 @@
 import logging
 import os
+import signal
+import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CallbackQuery
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ApplicationBuilder, MessageHandler, filters, ConversationHandler
+from telegram.error import Conflict
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.date import DateTrigger
@@ -53,6 +56,9 @@ weekly_plan = {day: {"status": "❌", "author": data["author"], "content": data[
 
 # Initialize scheduler
 scheduler = AsyncIOScheduler()
+
+# Global variable for application
+application = None
 
 def get_back_button():
     """Return a back button for menus."""
@@ -359,8 +365,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data in ['post_now', 'select_datetime']:
         return await post_message(update, context)
 
+async def shutdown(application: Application):
+    """Shutdown the bot gracefully."""
+    logging.info("Shutting down...")
+    if scheduler.running:
+        scheduler.shutdown()
+    await application.stop()
+    await application.shutdown()
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals."""
+    logging.info(f"Received signal {signum}")
+    if application:
+        asyncio.create_task(shutdown(application))
+    sys.exit(0)
+
 def main():
     """Start the bot."""
+    global application
+    
     # Create the Application and pass it your bot's token
     TOKEN = os.getenv("BOT_TOKEN")
     application = ApplicationBuilder().token(TOKEN).build()
@@ -386,8 +409,21 @@ def main():
     application.add_handler(conv_handler)
     application.add_handler(CallbackQueryHandler(button_callback))
 
-    # Start the Bot
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Start the Bot with error handling
+    try:
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Conflict as e:
+        logging.error(f"Conflict error: {e}")
+        # Wait a bit and try to restart
+        asyncio.sleep(5)
+        main()
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        raise
 
 if __name__ == '__main__':
     main()
