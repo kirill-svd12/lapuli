@@ -1,6 +1,7 @@
 import logging
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ApplicationBuilder
 
 # Enable logging
 logging.basicConfig(
@@ -46,7 +47,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """Start the bot."""
     # Create the Application and pass it your bot's token
-    application = Application.builder().token('YOUR_BOT_TOKEN').build()
+    TOKEN = os.getenv("BOT_TOKEN")
+    application = ApplicationBuilder().token(TOKEN).build()
 
     # Add handlers
     application.add_handler(CommandHandler("start", start))
