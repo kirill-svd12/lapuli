@@ -2,7 +2,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, CallbackQuery
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ApplicationBuilder, MessageHandler, filters, ConversationHandler
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -10,6 +10,9 @@ from apscheduler.triggers.date import DateTrigger
 
 # Load environment variables
 load_dotenv()
+
+# Bot version
+BOT_VERSION = "1.0.0"
 
 # Enable logging
 logging.basicConfig(
@@ -68,7 +71,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            'Привет! Я бот для проверки администраторов. Выберите действие:',
+            f'Привет! Я бот для проверки администраторов (версия {BOT_VERSION}). Выберите действие:',
             reply_markup=reply_markup
         )
 
