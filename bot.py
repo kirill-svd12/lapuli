@@ -98,12 +98,12 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if isinstance(update, CallbackQuery):
         await update.edit_message_text(
-            "Меню администратора. Выберите действие:",
+            f"Меню администратора (версия {BOT_VERSION}). Выберите действие:",
             reply_markup=reply_markup
         )
     else:
         await update.message.reply_text(
-            "Меню администратора. Выберите действие:",
+            f"Меню администратора (версия {BOT_VERSION}). Выберите действие:",
             reply_markup=reply_markup
         )
 
@@ -329,7 +329,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif query.data == 'check_admin':
         if query.from_user.id in ADMIN_IDS:
-            await admin_menu(update, context)
+            # Create a new Update object with the message attribute
+            new_update = Update(update.update_id, message=query.message)
+            await admin_menu(new_update, context)
         else:
             keyboard = [get_back_button()]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -339,7 +341,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     
     elif query.data == 'back_to_menu':
-        await admin_menu(update, context)
+        # Create a new Update object with the message attribute
+        new_update = Update(update.update_id, message=query.message)
+        await admin_menu(new_update, context)
     
     elif query.data == 'schedule_post':
         return await schedule_post(update, context)
