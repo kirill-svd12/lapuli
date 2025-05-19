@@ -389,7 +389,7 @@ def main():
     global application
     
     # Create the Application and pass it your bot's token
-    TOKEN = os.getenv("8054850906:AAEzFbH2FaeTjjQ7Z_kOlg8BOsV1iR--66o")
+    TOKEN = "8054850906:AAEzFbH2FaeTjjQ7Z_kOlg8BOsV1iR--66o"
     application = ApplicationBuilder().token(TOKEN).build()
 
     # Start the scheduler
