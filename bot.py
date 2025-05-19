@@ -73,10 +73,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
-def main():
+async def main():
     """Start the bot."""
     # Create the Application and pass it your bot's token
-    TOKEN = "8054850906:AAEzFbH2FaeTjjQ7Z_kOlg8BOsV1iR--66o"  # Замените на ваш токен
+    TOKEN = "8054850906:AAEzFbH2FaeTjjQ7Z_kOlg8BOsV1iR--66o"
     application = Application.builder().token(TOKEN).build()
 
     # Add handlers
@@ -84,7 +84,10 @@ def main():
     application.add_handler(CallbackQueryHandler(button_callback))
 
     # Start the Bot
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    await application.initialize()
+    await application.start()
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    main() 
+    import asyncio
+    asyncio.run(main()) 
